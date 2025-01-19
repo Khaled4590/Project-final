@@ -1,0 +1,146 @@
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+namespace UserWalletAPI
+{
+    // Models
+    public class User
+    {
+        public Guid UserId { get; set; } = Guid.NewGuid();
+        public string Email { get; set; }
+        public string Name { get; set; }
+        public string PasswordHash { get; set; }
+        public decimal WalletBalance { get; set; } = 0;
+    }
+
+    public class Transaction
+    {
+        public Guid TransactionId { get; set; } = Guid.NewGuid();
+        public Guid UserId { get; set; }
+        public string TransactionType { get; set; } // Deposit, Withdraw, Buy, Sell
+        public decimal Amount { get; set; }
+        public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+    }
+
+    public class AppDbContext : DbContext
+    {
+        public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+
+        public DbSet<User> Users { get; set; }
+        public DbSet<Transaction> Transactions { get; set; }
+    }
+
+    // Controllers
+    [ApiController]
+    [Route("user")]
+    public class UserController : ControllerBase
+    {
+        private readonly AppDbContext _context;
+
+        public UserController(AppDbContext context)
+        {
+            _context = context;
+        }
+
+        [HttpPost("signup")]
+        public async Task<IActionResult> Signup([FromBody] User user)
+        {
+            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(user.PasswordHash);
+            _context.Users.Add(user);
+            await _context.SaveChangesAsync();
+            return Ok(new { Message = "User registered successfully." });
+        }
+
+        [HttpPost("login")]
+        public async Task<IActionResult> Login([FromBody] User loginRequest)
+        {
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Name == loginRequest.Name);
+            if (user == null || !BCrypt.Net.BCrypt.Verify(loginRequest.PasswordHash, user.PasswordHash))
+            {
+                return Unauthorized(new { Message = "Invalid credentials." });
+            }
+
+            return Ok(new { Message = "Login successful.", UserId = user.UserId });
+        }
+
+        [HttpGet("profile")]
+        public async Task<IActionResult> GetProfile([FromQuery] Guid userId)
+        {
+            var user = await _context.Users.FindAsync(userId);
+            if (user == null) return NotFound();
+
+            return Ok(new { user.Email, user.Name, user.WalletBalance });
+        }
+
+        [HttpGet("profile/wallet")]
+        public async Task<IActionResult> GetWallet([FromQuery] Guid userId)
+        {
+            var user = await _context.Users.FindAsync(userId);
+            if (user == null) return NotFound();
+
+            return Ok(new { user.WalletBalance });
+        }
+
+        [HttpPost("profile/wallet/deposit")]
+        public async Task<IActionResult> Deposit([FromBody] Transaction transaction)
+        {
+            var user = await _context.Users.FindAsync(transaction.UserId);
+            if (user == null) return NotFound();
+
+            user.WalletBalance += transaction.Amount;
+            _context.Transactions.Add(transaction);
+            await _context.SaveChangesAsync();
+
+            return Ok(new { Message = "Deposit successful." });
+        }
+
+        [HttpPost("profile/wallet/withdraw")]
+        public async Task<IActionResult> Withdraw([FromBody] Transaction transaction)
+        {
+            var user = await _context.Users.FindAsync(transaction.UserId);
+            if (user == null) return NotFound();
+
+            if (user.WalletBalance < transaction.Amount)
+                return BadRequest(new { Message = "Insufficient balance." });
+
+            user.WalletBalance -= transaction.Amount;
+            _context.Transactions.Add(transaction);
+            await _context.SaveChangesAsync();
+
+            return Ok(new { Message = "Withdrawal successful." });
+        }
+
+        [HttpGet("transaction-history")]
+        public async Task<IActionResult> GetTransactionHistory([FromQuery] Guid userId)
+        {
+            var transactions = await _context.Transactions
+                .Where(t => t.UserId == userId)
+                .ToListAsync();
+
+            return Ok(transactions);
+        }
+
+        [HttpGet("transaction-history/buy")]
+        public async Task<IActionResult> GetBuyTransactions([FromQuery] Guid userId)
+        {
+            var transactions = await _context.Transactions
+                .Where(t => t.UserId == userId && t.TransactionType == "Buy")
+                .ToListAsync();
+
+            return Ok(transactions);
+        }
+
+        [HttpPost("change_data")]
+        public async Task<IActionResult> ChangeData([FromBody] User updatedUser)
+        {
+            var user = await _context.Users.FindAsync(updatedUser.UserId);
+            if (user == null) return NotFound();
+
+            user.Email = updatedUser.Email;
+            user.Name = updatedUser.Name;
+            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(updatedUser.PasswordHash);
+
+            await _context.SaveChangesAsync();
+            return Ok(new { Message = "User data updated successfully." });
+        }
+    }
+}
