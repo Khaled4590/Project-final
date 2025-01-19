@@ -1,0 +1,28 @@
+-- Create Database
+CREATE DATABASE UserManagementDB;
+GO
+
+-- Use the created database
+USE UserManagementDB;
+GO
+
+-- Create Users Table
+CREATE TABLE Users (
+    UserId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    Email NVARCHAR(100) NOT NULL UNIQUE,
+    Name NVARCHAR(100) NOT NULL,
+    PasswordHash NVARCHAR(255) NOT NULL,
+    WalletBalance DECIMAL(18, 2) NOT NULL DEFAULT 0
+);
+GO
+
+-- Create Transactions Table
+CREATE TABLE Transactions (
+    TransactionId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    UserId UNIQUEIDENTIFIER NOT NULL,
+    TransactionType NVARCHAR(50) NOT NULL, -- Deposit, Withdraw, Buy, Sell
+    Amount DECIMAL(18, 2) NOT NULL,
+    Timestamp DATETIME NOT NULL DEFAULT GETDATE(),
+    CONSTRAINT FK_Transactions_Users FOREIGN KEY (UserId) REFERENCES Users(UserId) ON DELETE CASCADE
+);
+GO
